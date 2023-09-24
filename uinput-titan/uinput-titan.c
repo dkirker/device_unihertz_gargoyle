@@ -16,6 +16,7 @@
 
 #define  LOG_TAG    "UINPUT-TITAN"
 
+#define  LOGV(...)  __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, __VA_ARGS__)
 #define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
@@ -34,6 +35,27 @@ uint64_t now() {
     t = tv.tv_usec;
     t += (tv.tv_sec % (1000*1000*1000)) * 1000*1000LL;
     return t;
+}
+
+#define KEY_PTT 250
+#define KEY_PTT_1 249
+
+#define INTENT_CMD_FMT_STR "am broadcast -a %s%s"
+#define INTENT_CMD_BUF_SIZE 64 // Will hold INTENT_CMD_FMT_STR with PTT_INTENT_PREFIX and PTT_(PRESSED|RELEASED)_VALUE
+#define PTT_INTENT_PREFIX "android.intent.action.PTT."
+#define PTT_PRESSED_VALUE "pressed"
+#define PTT_RELEASED_VALUE "released"
+
+void sendPtt(bool pressed)
+{
+    char cmdBuf[INTENT_CMD_BUF_SIZE];
+    const char *value = pressed ? PTT_PRESSED_VALUE : PTT_RELEASED_VALUE;
+
+    LOGV("Sending PTT intent = %s%s\n", PTT_INTENT_PREFIX, value);
+
+    snprintf(cmdBuf, INTENT_CMD_BUF_SIZE, INTENT_CMD_FMT_STR, PTT_INTENT_PREFIX, value);
+
+    system(cmdBuf);
 }
 
 static uint64_t lastKbdTimestamp;
@@ -197,7 +219,7 @@ static int uinput_init() {
     ioctl(fd, UI_SET_EVBIT, EV_REL);
 
     // keyboard events
-    ioctl(fd, UI_SET_KEYBIT, KEY_LEFT);
+    /*ioctl(fd, UI_SET_KEYBIT, KEY_LEFT);
     ioctl(fd, UI_SET_KEYBIT, KEY_RIGHT);
     ioctl(fd, UI_SET_KEYBIT, KEY_UP);
     ioctl(fd, UI_SET_KEYBIT, KEY_DOWN);
@@ -213,10 +235,12 @@ static int uinput_init() {
     ioctl(fd, UI_SET_KEYBIT, KEY_4);
     ioctl(fd, UI_SET_KEYBIT, KEY_5);
     ioctl(fd, UI_SET_KEYBIT, KEY_6);
-    ioctl(fd, UI_SET_KEYBIT, KEY_ENTER);
+    ioctl(fd, UI_SET_KEYBIT, KEY_ENTER);*/
+    ioctl(fd, UI_SET_KEYBIT, KEY_PTT);
+    ioctl(fd, UI_SET_KEYBIT, KEY_PTT_1);
 
     // lets us behave as a touchscreen. Inputs are directly mapped onto display
-    ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_DIRECT);
+//    ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_DIRECT);
 
     // touch events
     ioctl(fd, UI_SET_EVBIT, EV_ABS);
@@ -238,7 +262,7 @@ static int open_ev(const char *lookupName) {
         char name[128];
         ioctl(fd, EVIOCGNAME(sizeof(name)), name);
         if(strcmp(name, lookupName) == 0) {
-            LOGI("open_ev name = %s and lookupName = %s\n",name, lookupName);
+            LOGV("open_ev name = %s and lookupName = %s\n",name, lookupName);
             return fd;
         }
 
@@ -336,14 +360,14 @@ int isInRect(int x, int y, int top, int bottom, int left, int right) {
 
 
 int injectKeyDown(int ufd, int key){
-    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-INJECT", "injecting down key = %d\n", key);
+    LOGV("KB-INJECT: injecting down key = %d\n", key);
     insertEvent(ufd, EV_KEY, key, 1);
     insertEvent(ufd, EV_SYN, SYN_REPORT, 0);
     return 0;
 }
 
 int injectKeyUp(int ufd, int key){
-    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-INJECT", "injecting up key = %d\n", key);
+    LOGV("KB-INJECT: injecting up key = %d\n", key);
     insertEvent(ufd, EV_KEY, key, 0);
     insertEvent(ufd, EV_SYN, SYN_REPORT, 0);
     return 0;
@@ -423,7 +447,7 @@ int injectSwipe(int ufd, int xstart, int ystart, int xend, int yend){
         }
     }
 
-    LOGI("SENDING SWIPE\n");
+    LOGV("SENDING SWIPE\n");
     injectAbsEvent(ufd, x, y, true);
     if(vertical && positive){
         for(int j = y+swipe_increment; j <= y+swipe_size; j += swipe_increment){
@@ -452,7 +476,7 @@ int injectSwipe(int ufd, int xstart, int ystart, int xend, int yend){
     }
 
     injectAbsFinal(ufd);
-    LOGI("SENT SWIPE\n");
+    LOGV("SENT SWIPE\n");
 
     return 0;
 }
@@ -468,8 +492,7 @@ static int latest_x = -1;
 static int latest_y = -1;
 // since we are mapping a 720 resolution touchpad onto a 1440 resolution screen, we have to multiply the y value to
 // get decent scrolling behaviour
-static float y_multiplier = 1;
-// TODO: pick a proper multiplier. best so far is 1.7 for y
+static float y_multiplier = 1.7; // TODO: pick a proper multiplier. best so far is 1.7 for y
 static float x_multiplier = 1;
 static bool isSwipeActivated = false;
 static bool isSwipeLeftActivated = false;
@@ -483,7 +506,7 @@ static void buffer(struct input_event e){
 }
 
 static void reset(){
-    LOGI("reset\n");
+    LOGV("reset\n");
     buffer_index = 0;
     touched = 0;
     sent_events = 0;
@@ -548,10 +571,10 @@ static void replay_buffer(int ufd, int correct_x){
 // send all of the events we have been saving, including the latest SYN
 static void act(int ufd, int correct_x){
     if(!sent_events){
-        LOGI("act: adding tracking id\n");
+        LOGV("act: adding tracking id\n");
         insertEvent(ufd, EV_ABS, ABS_MT_TRACKING_ID, 0 );
     }
-    LOGI("act: replaying buffer\n");
+    LOGV("act: replaying buffer\n");
     replay_buffer(ufd, correct_x);
     return;
 }
@@ -695,7 +718,7 @@ static void decide(int ufd){
     */
 
     if( (abs(first_y - latest_y) > y_threshold) || (abs(first_x - latest_x) > x_threshold)){
-        LOGI("decide: acting\n");
+        LOGV("decide: acting\n");
 
         // TODO: correct y values to avoid activating the notification panel. this goes along with picking a proper multiplier. Also might need to do the same to avoid activating the switcher?
         act(ufd, latest_x);
@@ -721,9 +744,9 @@ static int64_t last_double_tap_time = 0;
 // store and act on every SYN
 // when we see a difference > 60 start piping stored, and future syns until BTN_TOUCH UP
 static void handle(int ufd, struct input_event e){
-    /* LOGI("saw type = %d, code = %d, value = %d\n", e.type, e.code, e.value); */
+    /* LOGV("saw type = %d, code = %d, value = %d\n", e.type, e.code, e.value); */
     if(e.type == EV_KEY && e.code == BTN_TOUCH && e.value == 1) {
-        LOGI("BTN_TOUCH DOWN\n");
+        LOGV("BTN_TOUCH DOWN\n");
         touched = 1;
         buffer(e);
 
@@ -743,7 +766,7 @@ static void handle(int ufd, struct input_event e){
             }
 
             if (sent_events){
-                LOGI("BTN_TOUCH UP: sent events\n");
+                LOGV("BTN_TOUCH UP: sent events\n");
                 buffer(e);
                 act(ufd, 0);
                 finalize(ufd);
@@ -751,7 +774,7 @@ static void handle(int ufd, struct input_event e){
             }
             else{
                 buffer(e);
-                LOGI("BTN_TOUCH UP: resetting\n");
+                LOGV("BTN_TOUCH UP: resetting\n");
                 if(was_tapped){
                     LOGI("entered was_tapped");
                     uint64_t d1 = now() - lastKbdTimestamp;
@@ -764,26 +787,26 @@ static void handle(int ufd, struct input_event e){
                     char buf4[100];
                     snprintf(buf, 100, "d1:%d", d1);
                     snprintf(buf2, 100, "d2:%d", d2);
-//                    LOGI(buf);
-//                    LOGI(buf2);
+//                    LOGV(buf);
+//                    LOGV(buf2);
                     if(isD1) {
-                        LOGI("isD1:true");
+                        LOGV("isD1:true");
                     }
                     else
                     {
-                        LOGI("isD1:false");
+                        LOGV("isD1:false");
                     }
 
                     if(isD2) {
-                        LOGI("isD2:true");
+                        LOGV("isD2:true");
                     }
                     else
                     {
-                        LOGI("isD2:false");
+                        LOGV("isD2:false");
                     }
 
                     if(isD1 && isD2) {
-                        LOGI("double tap time check passed");
+                        LOGV("double tap time check passed");
                         //if(isInRect(tap_x, tap_y, 1200, 1224, 600, 800)) {
                         char buf5[100];
                         char buf6[100];
@@ -793,31 +816,31 @@ static void handle(int ufd, struct input_event e){
                         snprintf(buf4, 100, "bottom:%d", latest_y-180);
                         snprintf(buf5, 100, "left:%d", latest_x-180);
                         snprintf(buf6, 100, "right:%d", latest_x+180);
-//                        LOGI(buf);
-//                        LOGI(buf2);
-//                        LOGI(buf3);
-//                        LOGI(buf4);
-//                        LOGI(buf5);
-//                        LOGI(buf6);
+//                        LOGV(buf);
+//                        LOGV(buf2);
+//                        LOGV(buf3);
+//                        LOGV(buf4);
+//                        LOGV(buf5);
+//                        LOGV(buf6);
 
                         if(isInRect(tap_x, tap_y, latest_y-180, latest_y+180, latest_x - 180, latest_x + 180)) {
-                            LOGI("double tap first rect passed");
+                            LOGV("double tap first rect passed");
                                 isSwipeActivated = true;
                             /*
                             if(isInRect(latest_x, latest_y, 1200, 1224, 600, 800)) {
-                                LOGI("Double tap on space key\n");
+                                LOGV("Double tap on space key\n");
                                 injectKey(ufd, KEY_TAB);
                             }
                             */
                         }
 
                         was_tapped = 0;
-                        LOGI("setting was_tapped = 0");
+                        LOGV("setting was_tapped = 0");
                     }
                     last_single_tap_time = now();
                 }
                 else{
-                    LOGI("setting was_tapped = 1");
+                    LOGV("setting was_tapped = 1");
                     was_tapped = 1;
                     tap_x = latest_x;
                     tap_y = latest_y;
@@ -825,18 +848,17 @@ static void handle(int ufd, struct input_event e){
                 }
 
                 reset();
-
             }
         }
         else if(e.type == EV_ABS && e.code == ABS_MT_POSITION_X) {
             buffer(e);
             if(first_x == -1){
-                LOGI("setting first_x to %d\n", e.value);
+                LOGV("setting first_x to %d\n", e.value);
                 first_x = e.value;
                 latest_x = e.value;
             }
             else{
-                LOGI("setting latest_x to %d\n", e.value);
+                LOGV("setting latest_x to %d\n", e.value);
                 latest_x = e.value;
             }
         }
@@ -844,18 +866,18 @@ static void handle(int ufd, struct input_event e){
             e.value = y_multiplier * e.value;
             buffer(e);
             if(first_y == -1){
-                LOGI("setting first_y to %d\n", e.value);
+                LOGV("setting first_y to %d\n", e.value);
                 first_y = e.value;
                 latest_y = e.value;
             }
             else{
-                LOGI("setting latest_y to %d\n", e.value);
+                LOGV("setting latest_y to %d\n", e.value);
                 latest_y = e.value;
             }
         }
         else if(e.type == EV_SYN && e.code == SYN_REPORT) {
             buffer(e);
-            LOGI("SYN seen, deciding\n");
+            LOGV("SYN seen, deciding\n");
             decide(ufd);
         }
         else {
@@ -885,13 +907,13 @@ void *keyboard_monitor(void* ptr) {
     struct input_event kbe;
 
     //aw9523-key
-    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "start\n");
-    int fd = open_ev("aw9523-key");
+    LOGV("KB-MON-THREAD: start\n");
+    int fd = open_ev("mtk-kpd"); //"aw9523-key");
     if(fd<0){
-        __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "open failed!\n");
+        LOGE("KB-MON-THREAD: open failed!\n");
         return NULL;
     }
-    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "opened successfully\n");
+    LOGI("KB-MON-THREAD: opened successfully\n");
 
     while(1) {
         if(read(fd, &kbe, sizeof(kbe)) != sizeof(kbe)){
@@ -900,7 +922,7 @@ void *keyboard_monitor(void* ptr) {
         else{
 
             if(kbe.type == EV_KEY){
-                __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "read key code = %d, value = %d\n", kbe.code, kbe.value);
+                LOGV("KB-MON-THREAD: read key code = %d, value = %d\n", kbe.code, kbe.value);
             }
 
             // can possibly remap more keys, specfically hjkl to arrow keys by mapping them to FUNCTION in the kl
@@ -910,7 +932,7 @@ void *keyboard_monitor(void* ptr) {
             if(kbe.type == EV_KEY && kbe.value == 1){
                 lastKbdTimestamp = now();
                 if(kbe.code == KEY_APPSELECT){
-                    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "read function\n");
+                    LOGV("KB-MON-THREAD: read function\n");
                     saw_function = 1;
                     last_saw_function = now();
                 }
@@ -925,8 +947,8 @@ void *keyboard_monitor(void* ptr) {
                         shift_lock = 1;
                         shift_toggle = 0;
                     }
-                    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "shift_toggle = %d, shift_lock = %d\n", shift_toggle, shift_lock);
-                    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "alt_toggle = %d, alt_lock = %d\n", alt_toggle, alt_lock);
+                    LOGV("KB-MON-THREAD: shift_toggle = %d, shift_lock = %d\n", shift_toggle, shift_lock);
+                    LOGV("KB-MON-THREAD: alt_toggle = %d, alt_lock = %d\n", alt_toggle, alt_lock);
                 }
 
                 else if(kbe.code == KEY_RIGHTALT){
@@ -940,11 +962,14 @@ void *keyboard_monitor(void* ptr) {
                         alt_lock = 1;
                         alt_toggle = 0;
                     }
-                    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "alt_toggle = %d, alt_lock = %d\n", alt_toggle, alt_lock);
-                    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "shift_toggle = %d, shift_lock = %d\n", shift_toggle, shift_lock);
+                    LOGV("KB-MON-THREAD: alt_toggle = %d, alt_lock = %d\n", alt_toggle, alt_lock);
+                    LOGV("KB-MON-THREAD: shift_toggle = %d, shift_lock = %d\n", shift_toggle, shift_lock);
                 }
                 else if (kbe.code == KEY_ENTER) {
                     isSwipeActivated = false;
+                }
+                else if (kbe.code == KEY_PTT || kbe.code == KEY_PTT_1) {
+                    sendPtt(true);
                 }
                 else{
                     if(shift_toggle){
@@ -953,14 +978,14 @@ void *keyboard_monitor(void* ptr) {
                     if(alt_toggle){
                         alt_toggle = 0;
                     }
-                    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "shift_toggle = %d, alt_toggle = %d\n", shift_toggle, alt_toggle);
+                    LOGV("KB-MON-THREAD: shift_toggle = %d, alt_toggle = %d\n", shift_toggle, alt_toggle);
                 }
-            }/*
+            }
             // for holds we want to act on key up
             else if(kbe.type == EV_KEY && kbe.value == 0){
                 test_time = now() - last_saw_function;
-                __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "test_time = %"PRIu64" hold_time = %"PRIu64"\n", test_time, hold_time );
-                if(kbe.code == KEY_APPSELECT && (test_time < hold_time)){
+                LOGV("KB-MON-THREAD: test_time = %"PRIu64" hold_time = %"PRIu64"\n", test_time, hold_time );
+                /*if(kbe.code == KEY_APPSELECT && (test_time < hold_time)){
                     __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "sending alt and shift\n");
                     if(shift_toggle || shift_lock){
                         injectKey(fd, KEY_RIGHTALT);
@@ -980,11 +1005,14 @@ void *keyboard_monitor(void* ptr) {
                     injectKey(ufd, KEY_APPSELECT);
                     saw_function = 0;
                 }
+                else*/ if (kbe.code == KEY_PTT || kbe.code == KEY_PTT_1) {
+                    sendPtt(false);
+                }
 
-            }*/
+            }
         }
     }
-    __android_log_print(ANDROID_LOG_INFO, "UINPUT-TITAN-KB-MON-THREAD", "error, returning\n");
+    LOGV("KB-MON-THREAD: error, returning\n");
     return NULL;
 }
 
@@ -997,7 +1025,7 @@ bool parseScreenDimensionInformation(){
     fp = popen("su -c dumpsys display | grep mBaseDisplayInfo", "r");
     if(fp == NULL)
     {
-        LOGI("Failed to read display information.");
+        LOGV("Failed to read display information.");
         exit(1);
     }
 
@@ -1014,7 +1042,7 @@ bool parseScreenDimensionInformation(){
     pclose(fp);
 
     //Log Output
-//    LOGI(output);
+    LOGV("%s", output);
 
     //Copy for manipulation
     strcpy(output2, output);
@@ -1023,7 +1051,7 @@ bool parseScreenDimensionInformation(){
     char* str = strtok(output2, token);
     char value[100];
     while (str != NULL) {
-        LOGI(" %s\n", str);
+        LOGV(" %s\n", str);
         if(strstr(str, "real"))
         {
             //value = str;
@@ -1047,7 +1075,7 @@ bool parseScreenDimensionInformation(){
     int count = 0;
     char* ptr = strtok(sub, "x");
     do{
-        //LOGI("LOG:%s",ptr);
+        //LOGV("LOG:%s",ptr);
         if(count == 0)
         {
             strcpy(width,ptr);
@@ -1060,14 +1088,14 @@ bool parseScreenDimensionInformation(){
         }
         count++;
     }
-    while(ptr = strtok(NULL, "x "));
+    while((ptr = strtok(NULL, "x ")));
 
-    //LOGI("'%s'", value);
-    //LOGI("'%s'", sub);
-    //LOGI("Width:'%s'", width);
-    //LOGI("Height:%s'", height);
-    LOGI("Screen Width Detected:'%d'", screen_width);
-    LOGI("Screen Height Detected:'%d'", screen_height);
+    //LOGV("'%s'", value);
+    //LOGV("'%s'", sub);
+    //LOGV("Width:'%s'", width);
+    //LOGV("Height:%s'", height);
+    LOGV("Screen Width Detected:'%d'", screen_width);
+    LOGV("Screen Height Detected:'%d'", screen_height);
 
     if(screen_width == 0 || screen_height == 0)
     {
@@ -1095,11 +1123,11 @@ device_type getDeviceType() {
 }
 
 void prepareDevice(device_type dev) {
-
     if(dev == SLIM) {
         y_multiplier = 2.5;
+    } else if (dev == POCKET) {
+        y_multiplier = 1;
     }
-
 }
 
 int main() {
@@ -1125,7 +1153,7 @@ int main() {
     int ufd = uinput_init();
     int origfd = original_input_init();
 
-    LOGI("keyboard thread\n");
+    LOGV("keyboard thread\n");
     pthread_t keyboard_monitor_thread;
     pthread_create(&keyboard_monitor_thread, NULL, keyboard_monitor, (void*) &ufd);
     LOGI("keyboard thread created\n");
