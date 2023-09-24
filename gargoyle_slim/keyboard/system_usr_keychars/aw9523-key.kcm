@@ -225,7 +225,7 @@ key SPACE {
     number:                             ' '
     base:                               ' '
     shift:                              ' '
-    alt:                                '\uef01'
+    alt:                                '\t'
     shift+alt:                          '\uef01'
 }
 
