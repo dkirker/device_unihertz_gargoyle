@@ -8,7 +8,7 @@ LOCAL_MODULE := OpenCamera
 
 LOCAL_CERTIFICATE := platform
 
-LOCAL_SRC_FILES := OpenCamera_1.51.1_Apkpure.apk
+LOCAL_SRC_FILES := OpenCamera_1.51.1.apk
 
 LOCAL_MODULE_CLASS := APPS
 
