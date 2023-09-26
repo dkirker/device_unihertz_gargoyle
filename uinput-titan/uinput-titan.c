@@ -59,6 +59,9 @@ void sendPtt(bool pressed)
 }
 
 static uint64_t lastKbdTimestamp;
+static uint64_t lastKeyEvent;
+
+#define TOUCH_KEY_DELAY 1000*1000 // 1000 ms
 
 typedef enum device_type {
     NOTSET,
@@ -744,6 +747,9 @@ static int64_t last_double_tap_time = 0;
 // store and act on every SYN
 // when we see a difference > 60 start piping stored, and future syns until BTN_TOUCH UP
 static void handle(int ufd, struct input_event e){
+    if(e.type == EV_KEY && e.code == BTN_TOUCH && ((now() - lastKeyEvent) < TOUCH_KEY_DELAY)) {
+        return;
+    }
     /* LOGV("saw type = %d, code = %d, value = %d\n", e.type, e.code, e.value); */
     if(e.type == EV_KEY && e.code == BTN_TOUCH && e.value == 1) {
         LOGV("BTN_TOUCH DOWN\n");
@@ -785,8 +791,8 @@ static void handle(int ufd, struct input_event e){
                     char buf2[100];
                     char buf3[100];
                     char buf4[100];
-                    snprintf(buf, 100, "d1:%d", d1);
-                    snprintf(buf2, 100, "d2:%d", d2);
+                    snprintf(buf, 100, "d1:%lu", d1);
+                    snprintf(buf2, 100, "d2:%lu", d2);
 //                    LOGV(buf);
 //                    LOGV(buf2);
                     if(isD1) {
@@ -920,8 +926,11 @@ void *keyboard_monitor(void* ptr) {
             break;
         }
         else{
-
             if(kbe.type == EV_KEY){
+                if (kbe.code != BTN_TOUCH) {
+                    lastKeyEvent = now();
+                }
+
                 LOGV("KB-MON-THREAD: read key code = %d, value = %d\n", kbe.code, kbe.value);
             }
 
